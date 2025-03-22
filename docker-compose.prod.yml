@@ -1,0 +1,42 @@
+version: '3.8'
+services:
+  mongo:
+    image: mongo:latest
+    container_name: fitness_mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: user
+      MONGO_INITDB_ROOT_PASSWORD: Aa@123456
+    volumes:
+      - mongo_data:/data/db
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: fitness_backend
+    restart: always
+    ports:
+      - "3001:3000"
+    environment:
+      MONGO_URI: "mongodb://user:Aa%40123456@mongo:27017/fitness-app"
+      JWT_SECRET: "yourSecretKey"
+    command: npm run start:prod
+    depends_on:
+      - mongo
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: fitness_frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  mongo_data:

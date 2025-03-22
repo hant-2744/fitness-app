@@ -1,57 +1,98 @@
 version: 2.1
+
+orbs:
+  aws-ecr: circleci/aws-ecr@7.2.0
+  aws-ecs: circleci/aws-ecs@2.4.0
+
 jobs:
   test:
     docker:
-      - image: cimg/base:stable
+      - image: cimg/node:18.14.0
     steps:
       - checkout
       - run:
-          name: Run tests
-          command: echo 'replace me with real tests!' && false
-  build:
+          name: Install dependencies and run tests
+          command: |
+            cd backend && npm install && npm run test --if-present
+            cd ../frontend && npm install && npm run test --if-present
+
+  build-backend:
+    docker:
+      - image: cimg/node:18.14.0
+    working_directory: ~/repo/backend
+    steps:
+      - checkout
+      - run:
+          name: Install backend dependencies
+          command: npm install
+      - run:
+          name: Build backend code
+          command: npm run build
+      - run:
+          name: Build Docker image for backend
+          command: docker build -t myrepo/fitness-backend:latest .
+
+  build-frontend:
+    docker:
+      - image: cimg/node:18.14.0
+    working_directory: ~/repo/frontend
+    steps:
+      - checkout
+      - run:
+          name: Install frontend dependencies
+          command: npm install
+      - run:
+          name: Build frontend code
+          command: npm run build
+      - run:
+          name: Build Docker image for frontend
+          command: docker build -t myrepo/fitness-frontend:latest .
+
+  push-images:
     docker:
       - image: cimg/base:stable
     steps:
       - checkout
-      - run:
-          name: Build an artifact
-          command: touch example.txt
-      - store_artifacts:
-          path: example.txt
+      - setup_remote_docker
+      # Push backend image
+      - aws-ecr/push-image:
+          account-url: "<aws_account_id>.dkr.ecr.<region>.amazonaws.com"
+          repo: "fitness-backend"
+          tag: "latest"
+          region: "<region>"
+          image: "myrepo/fitness-backend"
+      # Push frontend image
+      - aws-ecr/push-image:
+          account-url: "<aws_account_id>.dkr.ecr.<region>.amazonaws.com"
+          repo: "fitness-frontend"
+          tag: "latest"
+          region: "<region>"
+          image: "myrepo/fitness-frontend"
+
   deploy:
     docker:
       - image: cimg/base:stable
     steps:
-      - run:
-          name: deploy
-          command: "#e.g. ./deploy.sh"
-  evals-test-assertions-job:
-    docker:
-      - image: cimg/base:stable
-    steps:
       - checkout
-      - evals/test:
-          assertions: assertions.json
-          metrics: eval_results.json
-          results: test_results.xml
+      - run:
+          name: Deploy to AWS ECS
+          command: |
+            aws ecs update-service --cluster fitness-cluster --service fitness-service --force-new-deployment --region <region>
+
 workflows:
-  example:
+  build_deploy:
     jobs:
-      - test:
-          context:
-            - OpenAI-context
-      - build:
+      - test
+      - build-backend:
           requires:
             - test
-          context:
-            - OpenAI-context
+      - build-frontend:
+          requires:
+            - test
+      - push-images:
+          requires:
+            - build-backend
+            - build-frontend
       - deploy:
           requires:
-            - test
-          context:
-            - OpenAI-context
-  test-eval-workflow:
-    jobs:
-      - evals-test-assertions-job
-orbs:
-  evals: circleci/evals@2.0
+            - push-images
